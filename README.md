@@ -1,6 +1,6 @@
-# wsl-notify
+# notify-send-wsl
 
-`wsl-notify` provides a `notify-send`-style command for WSL that shows Windows toast notifications through `powershell.exe`.
+`notify-send-wsl` provides a WSL command that shows Windows toast notifications through `powershell.exe`.
 
 ## Requirements
 
@@ -79,6 +79,12 @@ From Codex JSON payload:
 notify-send-wsl --agent=codex '{"title":"Codex task done","message":"Implemented feature"}'
 ```
 
+Codex config:
+
+```toml
+notify = ["npx", "@dbalabka/notify-send-wsl", "--agent", "codex"]
+```
+
 Codex official event payload compatibility:
 - `type` must be `agent-turn-complete` (other event types are ignored)
 - title uses `Codex: <last-assistant-message>` (fallback: `Turn Complete!`)
@@ -89,6 +95,26 @@ From Claude JSON payload (stdin):
 
 ```bash
 cat claude-event.json | notify-send-wsl --agent=claude -
+```
+
+Claude config:
+
+```json
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx @dbalabka/notify-send-wsl --agent claude"
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
 Raw JSON string mode:
