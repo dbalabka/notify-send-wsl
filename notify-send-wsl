@@ -1,0 +1,588 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  notify-send-wsl [OPTIONS] <summary> [body]
+
+Options (phase 1):
+  -?, --help
+  -u, --urgency=LEVEL
+  -t, --expire-time=TIME_MS
+  -i, --icon=ICON
+  -a, --app-name=APP_NAME
+  -c, --category=TYPE[,TYPE...]
+  -h, --hint=TYPE:NAME:VALUE
+  --agent=auto|claude|codex
+
+Unsupported (exit 3):
+  -p, -r, -w, -A, --id-fd, --selected-action-fd, --activation-token-fd, -e
+EOF
+}
+
+die_usage() {
+  printf 'notify-send-wsl: %s\n' "$1" >&2
+  usage >&2
+  exit 1
+}
+
+die_unsupported() {
+  printf 'notify-send-wsl: unsupported option: %s\n' "$1" >&2
+  exit 3
+}
+
+require_arg() {
+  local opt="$1"
+  local val="${2-}"
+  if [[ -z "$val" ]]; then
+    die_usage "missing argument for ${opt}"
+  fi
+}
+
+resolve_agent_input() {
+  local input="$1"
+  if [[ "$input" == "-" ]]; then
+    cat
+  else
+    # Treat argument as raw JSON text.
+    printf '%s' "$input"
+  fi
+}
+
+urgency="normal"
+expire_time=""
+icon=""
+app_name="notify-send-wsl"
+category=""
+hints=()
+positionals=()
+agent_json_format="auto"
+agent_json_mode=0
+agent_json=""
+
+summary_set=0
+body_set=0
+urgency_set=0
+expire_time_set=0
+icon_set=0
+app_name_set=0
+category_set=0
+
+while (($#)); do
+  case "$1" in
+    -\?|--help)
+      usage
+      exit 0
+      ;;
+    -u)
+      shift
+      require_arg "-u" "${1-}"
+      urgency="$1"
+      urgency_set=1
+      ;;
+    --urgency=*)
+      urgency="${1#*=}"
+      require_arg "--urgency" "$urgency"
+      urgency_set=1
+      ;;
+    --urgency)
+      shift
+      require_arg "--urgency" "${1-}"
+      urgency="$1"
+      urgency_set=1
+      ;;
+    -t)
+      shift
+      require_arg "-t" "${1-}"
+      expire_time="$1"
+      expire_time_set=1
+      ;;
+    --expire-time=*)
+      expire_time="${1#*=}"
+      require_arg "--expire-time" "$expire_time"
+      expire_time_set=1
+      ;;
+    --expire-time)
+      shift
+      require_arg "--expire-time" "${1-}"
+      expire_time="$1"
+      expire_time_set=1
+      ;;
+    -i)
+      shift
+      require_arg "-i" "${1-}"
+      icon="$1"
+      icon_set=1
+      ;;
+    --icon=*)
+      icon="${1#*=}"
+      require_arg "--icon" "$icon"
+      icon_set=1
+      ;;
+    --icon)
+      shift
+      require_arg "--icon" "${1-}"
+      icon="$1"
+      icon_set=1
+      ;;
+    -a)
+      shift
+      require_arg "-a" "${1-}"
+      app_name="$1"
+      app_name_set=1
+      ;;
+    --app-name=*)
+      app_name="${1#*=}"
+      require_arg "--app-name" "$app_name"
+      app_name_set=1
+      ;;
+    --app-name)
+      shift
+      require_arg "--app-name" "${1-}"
+      app_name="$1"
+      app_name_set=1
+      ;;
+    -c)
+      shift
+      require_arg "-c" "${1-}"
+      category="$1"
+      category_set=1
+      ;;
+    --category=*)
+      category="${1#*=}"
+      require_arg "--category" "$category"
+      category_set=1
+      ;;
+    --category)
+      shift
+      require_arg "--category" "${1-}"
+      category="$1"
+      category_set=1
+      ;;
+    -h)
+      shift
+      require_arg "-h" "${1-}"
+      hints+=("$1")
+      ;;
+    --hint=*)
+      hint_value="${1#*=}"
+      require_arg "--hint" "$hint_value"
+      hints+=("$hint_value")
+      ;;
+    --hint)
+      shift
+      require_arg "--hint" "${1-}"
+      hints+=("$1")
+      ;;
+    --agent=*)
+      agent_json_format="${1#*=}"
+      require_arg "--agent" "$agent_json_format"
+      agent_json_mode=1
+      ;;
+    --agent)
+      shift
+      require_arg "--agent" "${1-}"
+      agent_json_format="$1"
+      agent_json_mode=1
+      ;;
+    -p|-r|-w|-A|-e|--id-fd|--selected-action-fd|--activation-token-fd)
+      die_unsupported "$1"
+      ;;
+    --)
+      shift
+      while (($#)); do
+        positionals+=("$1")
+        shift
+      done
+      break
+      ;;
+    -)
+      positionals+=("$1")
+      ;;
+    -*)
+      die_usage "unknown option: $1"
+      ;;
+    *)
+      positionals+=("$1")
+      ;;
+  esac
+  shift
+done
+
+summary=""
+body=""
+if ((agent_json_mode == 1)); then
+  if ((${#positionals[@]} < 1)); then
+    die_usage "json input is required in agent mode"
+  fi
+  # In agent mode, first positional argument is the JSON payload/source.
+  agent_json="${positionals[0]}"
+  # In agent mode, any second positional argument is ignored by design.
+else
+  if ((${#positionals[@]} > 2)); then
+    die_usage "too many positional arguments"
+  fi
+  if ((${#positionals[@]} >= 1)); then
+    summary="${positionals[0]}"
+    summary_set=1
+  fi
+  if ((${#positionals[@]} == 2)); then
+    body="${positionals[1]}"
+    body_set=1
+  fi
+  if ((${#positionals[@]} == 0)); then
+    die_usage "summary is required"
+  fi
+fi
+
+case "$agent_json_format" in
+  auto|codex|claude)
+    ;;
+  *)
+    die_usage "invalid --agent value: $agent_json_format (expected auto, codex, or claude)"
+    ;;
+esac
+
+if [[ -n "$agent_json" ]]; then
+  agent_json="$(resolve_agent_input "$agent_json")"
+fi
+
+if ! command -v powershell.exe >/dev/null 2>&1; then
+  printf 'notify-send-wsl: powershell.exe not found in PATH\n' >&2
+  exit 2
+fi
+
+# Join multiple --hint entries into a single newline-delimited value.
+if ((${#hints[@]})); then
+  hints_joined=$(printf '%s\n' "${hints[@]}")
+else
+  hints_joined=""
+fi
+
+# Escape text for single-quoted PowerShell literals.
+ps_escape() {
+  printf '%s' "$1" | sed "s/'/''/g"
+}
+
+summary_ps=$(ps_escape "$summary")
+body_ps=$(ps_escape "$body")
+urgency_ps=$(ps_escape "$urgency")
+expire_time_ps=$(ps_escape "$expire_time")
+icon_ps=$(ps_escape "$icon")
+app_name_ps=$(ps_escape "$app_name")
+category_ps=$(ps_escape "$category")
+hints_ps=$(ps_escape "$hints_joined")
+agent_json_ps=$(ps_escape "$agent_json")
+agent_json_format_ps=$(ps_escape "$agent_json_format")
+
+ps_script=$(cat <<'POWERSHELL'
+$ErrorActionPreference = "Stop"
+try {
+  $summary = '__SUMMARY__'
+  $body = '__BODY__'
+  $urgency = '__URGENCY__'
+  $expireRaw = '__EXPIRE_RAW__'
+  $icon = '__ICON__'
+  $appName = '__APP_NAME__'
+  $category = '__CATEGORY__'
+  $hints = '__HINTS__'
+  $agentPayload = '__AGENT_PAYLOAD__'
+  $agentFormat = '__AGENT_FORMAT__'
+
+  $summarySet = '__SUMMARY_SET__' -eq '1'
+  $bodySet = '__BODY_SET__' -eq '1'
+  $urgencySet = '__URGENCY_SET__' -eq '1'
+  $expireTimeSet = '__EXPIRE_TIME_SET__' -eq '1'
+  $iconSet = '__ICON_SET__' -eq '1'
+  $appNameSet = '__APP_NAME_SET__' -eq '1'
+  $categorySet = '__CATEGORY_SET__' -eq '1'
+
+  function Get-JsonPathValue([object]$obj, [string[]]$paths) {
+    foreach ($path in $paths) {
+      $current = $obj
+      $ok = $true
+      foreach ($part in $path.Split('.')) {
+        if ($null -eq $current) {
+          $ok = $false
+          break
+        }
+        if ($current -is [System.Collections.IDictionary]) {
+          if ($current.Contains($part)) {
+            $current = $current[$part]
+          } else {
+            $ok = $false
+            break
+          }
+        } else {
+          $prop = $current.PSObject.Properties[$part]
+          if ($null -ne $prop) {
+            $current = $prop.Value
+          } else {
+            $ok = $false
+            break
+          }
+        }
+      }
+
+      if ($ok -and $null -ne $current) {
+        $str = [string]$current
+        if (-not [string]::IsNullOrWhiteSpace($str)) {
+          return $str
+        }
+      }
+    }
+    return ""
+  }
+
+  function Get-DirectPropertyValue([object]$obj, [string[]]$names) {
+    foreach ($name in $names) {
+      if ($null -eq $obj) { continue }
+      if ($obj -is [System.Collections.IDictionary]) {
+        if ($obj.Contains($name)) {
+          return $obj[$name]
+        }
+      } else {
+        $prop = $obj.PSObject.Properties[$name]
+        if ($null -ne $prop) {
+          return $prop.Value
+        }
+      }
+    }
+    return $null
+  }
+
+  function Normalize-Urgency([string]$value) {
+    $v = $value.ToLowerInvariant()
+    switch ($v) {
+      "critical" { return "critical" }
+      "high" { return "critical" }
+      "normal" { return "normal" }
+      "default" { return "normal" }
+      "low" { return "low" }
+      default { return $value }
+    }
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($agentPayload)) {
+    $agentParsed = $false
+    try {
+      $obj = $agentPayload | ConvertFrom-Json
+      $agentParsed = $true
+    } catch {
+      $agentParsed = $false
+    }
+
+    if ($agentParsed) {
+      $fmt = $agentFormat.ToLowerInvariant()
+      if ($fmt -eq "auto") {
+        $modelGuess = Get-JsonPathValue $obj @("model", "assistant", "provider")
+        if ($modelGuess.ToLowerInvariant().Contains("claude")) {
+          $fmt = "claude"
+        } elseif ($modelGuess.ToLowerInvariant().Contains("codex") -or $modelGuess.ToLowerInvariant().Contains("openai")) {
+          $fmt = "codex"
+        } elseif (-not [string]::IsNullOrWhiteSpace((Get-JsonPathValue $obj @("turns.0.role", "messages.0.role")))) {
+          $fmt = "claude"
+        } else {
+          $fmt = "codex"
+        }
+      }
+
+      if ($fmt -eq "codex") {
+        $eventType = Get-JsonPathValue $obj @("type")
+        if (-not [string]::IsNullOrWhiteSpace($eventType) -and $eventType -ne "agent-turn-complete") {
+          # Follow official Codex notification example: ignore non turn-complete events.
+          exit 0
+        }
+
+        $lastAssistant = Get-JsonPathValue $obj @("last-assistant-message", "last_assistant_message", "lastAssistantMessage")
+        if ([string]::IsNullOrWhiteSpace($lastAssistant)) {
+          $lastAssistant = "Turn Complete!"
+        }
+        $jsonSummary = "Codex: $lastAssistant"
+
+        $jsonBody = ""
+        $inputMessages = Get-DirectPropertyValue $obj @("input-messages", "input_messages", "inputMessages")
+        if ($null -ne $inputMessages) {
+          if ($inputMessages -is [System.Collections.IEnumerable] -and -not ($inputMessages -is [string])) {
+            $arr = @($inputMessages | ForEach-Object { [string]$_ })
+            if ($arr.Count -gt 0) {
+              $jsonBody = $arr[$arr.Count - 1]
+            }
+          } else {
+            $jsonBody = [string]$inputMessages
+          }
+        }
+        if ([string]::IsNullOrWhiteSpace($jsonBody)) {
+          $jsonBody = Get-JsonPathValue $obj @("body", "message", "text", "content", "notification.body")
+        }
+
+        $jsonUrgency = Normalize-Urgency (Get-JsonPathValue $obj @("urgency", "priority", "notification.urgency"))
+        $jsonExpire = Get-JsonPathValue $obj @("expire_time", "expire_time_ms", "timeout", "timeout_ms", "notification.timeout_ms")
+        $jsonIcon = Get-JsonPathValue $obj @("icon", "notification.icon")
+        $threadId = Get-JsonPathValue $obj @("thread-id", "thread_id", "threadId")
+        if (-not [string]::IsNullOrWhiteSpace($threadId)) {
+          $jsonCategory = "codex-$threadId"
+        } else {
+          $jsonCategory = Get-JsonPathValue $obj @("category", "kind")
+        }
+        $jsonApp = Get-JsonPathValue $obj @("app_name", "app", "source")
+        if ([string]::IsNullOrWhiteSpace($jsonApp)) { $jsonApp = "Codex" }
+      } else {
+        $jsonSummary = Get-JsonPathValue $obj @("title", "summary", "notification.title", "transcript.title", "session.title")
+        $jsonBody = Get-JsonPathValue $obj @("message", "body", "text", "output_text", "notification.body", "content")
+        $jsonUrgency = Normalize-Urgency (Get-JsonPathValue $obj @("urgency", "priority", "notification.urgency"))
+        $jsonExpire = Get-JsonPathValue $obj @("expire_time", "expire_time_ms", "timeout", "timeout_ms")
+        $jsonIcon = Get-JsonPathValue $obj @("icon", "notification.icon")
+        $jsonCategory = Get-JsonPathValue $obj @("category", "type")
+        $jsonApp = Get-JsonPathValue $obj @("app_name", "app", "assistant", "provider")
+        if ([string]::IsNullOrWhiteSpace($jsonApp)) { $jsonApp = "Claude" }
+      }
+
+      if (-not $summarySet -and -not [string]::IsNullOrWhiteSpace($jsonSummary)) { $summary = $jsonSummary }
+      if (-not $bodySet -and -not [string]::IsNullOrWhiteSpace($jsonBody)) { $body = $jsonBody }
+      if (-not $urgencySet -and -not [string]::IsNullOrWhiteSpace($jsonUrgency)) { $urgency = $jsonUrgency }
+      if (-not $expireTimeSet -and -not [string]::IsNullOrWhiteSpace($jsonExpire)) { $expireRaw = $jsonExpire }
+      if (-not $iconSet -and -not [string]::IsNullOrWhiteSpace($jsonIcon)) { $icon = $jsonIcon }
+      if (-not $categorySet -and -not [string]::IsNullOrWhiteSpace($jsonCategory)) { $category = $jsonCategory }
+      if (-not $appNameSet -and -not [string]::IsNullOrWhiteSpace($jsonApp)) { $appName = $jsonApp }
+    } else {
+      if (-not $summarySet) { $summary = "Agent" }
+      if (-not $bodySet) {
+        $raw = $agentPayload
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+          $body = "JSON"
+        } else {
+          $body = "JSON: $raw"
+        }
+      }
+    }
+  }
+
+  if ([string]::IsNullOrWhiteSpace($summary)) {
+    Write-Error "summary is required"
+    exit 1
+  }
+
+  if ([string]::IsNullOrWhiteSpace($appName)) {
+    $appName = "notify-send-wsl"
+  }
+
+  [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+  if (-not [string]::IsNullOrWhiteSpace($icon)) {
+    $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent(
+      [Windows.UI.Notifications.ToastTemplateType]::ToastImageAndText02
+    )
+  } else {
+    $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent(
+      [Windows.UI.Notifications.ToastTemplateType]::ToastText02
+    )
+  }
+
+  $line2 = $body
+  if (-not [string]::IsNullOrWhiteSpace($category)) {
+    if ([string]::IsNullOrWhiteSpace($line2)) { $line2 = "" }
+    $line2 = "$line2`ncategory: $category"
+  }
+  if (-not [string]::IsNullOrWhiteSpace($hints)) {
+    if ([string]::IsNullOrWhiteSpace($line2)) { $line2 = "" }
+    $line2 = "$line2`nhints: $hints"
+  }
+
+  $rawXml = [xml]$template.GetXml()
+  ($rawXml.toast.visual.binding.text | Where-Object { $_.id -eq "1" }).AppendChild(
+    $rawXml.CreateTextNode($summary)
+  ) > $null
+  if (-not [string]::IsNullOrWhiteSpace($line2)) {
+    ($rawXml.toast.visual.binding.text | Where-Object { $_.id -eq "2" }).AppendChild(
+      $rawXml.CreateTextNode($line2)
+    ) > $null
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($icon)) {
+    $iconUri = $icon
+    if ($iconUri -match '^/mnt/([a-zA-Z])/(.+)$') {
+      $drive = $matches[1].ToUpperInvariant()
+      $rest = ($matches[2] -replace '\\', '/') -replace ' ', '%20'
+      $iconUri = "file:///${drive}:/$rest"
+    } elseif ($iconUri -match '^[a-zA-Z]:\\') {
+      $winPath = ($iconUri -replace '\\', '/').Trim()
+      $iconUri = "file:///$winPath"
+    }
+
+    $imageNode = $rawXml.toast.visual.binding.image | Where-Object { $_.id -eq "1" } | Select-Object -First 1
+    if ($null -ne $imageNode) {
+      $imageNode.SetAttribute("src", $iconUri)
+      $imageNode.SetAttribute("placement", "appLogoOverride")
+      $imageNode.SetAttribute("hint-crop", "circle")
+    }
+  }
+
+  $template.LoadXml($rawXml.OuterXml)
+  $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
+  $toast.Tag = "notify-send-wsl"
+  switch ($urgency.ToLowerInvariant()) {
+    "critical" {
+      $toast.Priority = [Windows.UI.Notifications.ToastNotificationPriority]::High
+      break
+    }
+    "low" {
+      $toast.Priority = [Windows.UI.Notifications.ToastNotificationPriority]::Default
+      break
+    }
+    default {
+      $toast.Priority = [Windows.UI.Notifications.ToastNotificationPriority]::Default
+      break
+    }
+  }
+  if (-not [string]::IsNullOrWhiteSpace($category)) {
+    $toast.Group = $category
+  } else {
+    $toast.Group = "notify-send-wsl"
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($expireRaw)) {
+    $expireMs = 0
+    if ([int]::TryParse($expireRaw, [ref]$expireMs) -and $expireMs -gt 0) {
+      $toast.ExpirationTime = [DateTimeOffset]::Now.AddMilliseconds($expireMs)
+    }
+  }
+
+  $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appName)
+  $notifier.Show($toast)
+  exit 0
+} catch {
+  Write-Error $_.Exception.Message
+  exit 2
+}
+POWERSHELL
+)
+
+ps_script=${ps_script//__SUMMARY__/$summary_ps}
+ps_script=${ps_script//__BODY__/$body_ps}
+ps_script=${ps_script//__URGENCY__/$urgency_ps}
+ps_script=${ps_script//__EXPIRE_RAW__/$expire_time_ps}
+ps_script=${ps_script//__ICON__/$icon_ps}
+ps_script=${ps_script//__APP_NAME__/$app_name_ps}
+ps_script=${ps_script//__CATEGORY__/$category_ps}
+ps_script=${ps_script//__HINTS__/$hints_ps}
+ps_script=${ps_script//__AGENT_PAYLOAD__/$agent_json_ps}
+ps_script=${ps_script//__AGENT_FORMAT__/$agent_json_format_ps}
+ps_script=${ps_script//__SUMMARY_SET__/$summary_set}
+ps_script=${ps_script//__BODY_SET__/$body_set}
+ps_script=${ps_script//__URGENCY_SET__/$urgency_set}
+ps_script=${ps_script//__EXPIRE_TIME_SET__/$expire_time_set}
+ps_script=${ps_script//__ICON_SET__/$icon_set}
+ps_script=${ps_script//__APP_NAME_SET__/$app_name_set}
+ps_script=${ps_script//__CATEGORY_SET__/$category_set}
+
+set +e
+powershell.exe -NoProfile -NonInteractive -Command "$ps_script"
+ps_status=$?
+set -e
+if ((ps_status != 0)); then
+  printf 'notify-send-wsl: powershell execution failed (exit %d)\n' "$ps_status" >&2
+  exit 2
+fi
+
+exit 0
