@@ -1,23 +1,37 @@
 # notify-send-wsl
 
-`notify-send-wsl` is a small WSL command that shows Windows toast notifications through `powershell.exe`.
+Send native Windows toast notifications directly from WSL.
 
-It is intended as a lightweight `notify-send` replacement for WSL shells and agent hooks.
+`notify-send-wsl` is a small dependency-light CLI that runs inside WSL and forwards notifications through `powershell.exe`. It works well as a lightweight `notify-send` replacement for shell scripts, local tooling, and agent hooks.
 
-## Requirements
+## ✨ Quick start
+
+Run it once with `npx`:
+
+```bash
+npx @dbalabka/notify-send-wsl "Hello from WSL" "It works"
+```
+
+## 💡 Why use it
+
+- Native Windows toast notifications from WSL
+- No setup beyond WSL and `powershell.exe`
+- Works well for scripts, CI helpers, Codex, and Claude hooks
+
+## 📋 Requirements
 
 - WSL on Windows
 - `powershell.exe` available in `PATH`
 
-## Installation
+## 📦 Installation
 
-### With `npx`
+### `npx`
 
 ```bash
 npx @dbalabka/notify-send-wsl "Installed" "Ready to use"
 ```
 
-### With global npm install
+### Global npm install
 
 ```bash
 npm install -g @dbalabka/notify-send-wsl
@@ -30,13 +44,13 @@ Optional alias for Linux-style calls:
 alias notify-send=notify-send-wsl
 ```
 
-## Usage
+## 🚀 Usage
 
 ```bash
 notify-send-wsl [OPTIONS] <summary> [body]
 ```
 
-## Supported options
+## 🛠 Supported options
 
 - `-u, --urgency=LEVEL` with `low`, `normal`, or `critical`
 - `-t, --expire-time=TIME_MS`
@@ -47,7 +61,7 @@ notify-send-wsl [OPTIONS] <summary> [body]
 - `--agent=auto|codex|claude`
 - `-?, --help`
 
-## Examples
+## 🧪 Examples
 
 Basic notification:
 
@@ -70,7 +84,7 @@ notify-send-wsl \
   "All checks passed"
 ```
 
-## Agent integration
+## 🤖 Agent integration
 
 From Codex JSON payload:
 
@@ -125,14 +139,14 @@ notify-send-wsl --agent=auto '{"title":"Done","message":"Task finished"}' 'ignor
 
 When `--agent=...` is used, the first positional argument is treated as JSON input. Use `-` to read JSON from stdin. Any second positional argument is ignored.
 
-## Exit codes
+## 🔢 Exit codes
 
 - `0` success
 - `1` usage or validation error
 - `2` PowerShell execution failure
 - `3` unsupported option
 
-## Publishing
+## 📦 Publishing
 
 This repository is set up to publish the executable as the public npm package `@dbalabka/notify-send-wsl`.
 
@@ -148,6 +162,6 @@ Publish:
 npm publish
 ```
 
-## Reference
+## 📚 Reference
 
 - Microsoft docs: <https://learn.microsoft.com/en-us/windows/apps/develop/notifications/app-notifications/adaptive-interactive-toasts?tabs=appsdk>
