@@ -1,0 +1,31 @@
+{
+  "name": "@dbalabka/notify-send-wsl",
+  "version": "0.1.0",
+  "description": "WSL helper that shows Windows toast notifications from the shell via powershell.exe.",
+  "bin": "./notify-send-wsl",
+  "files": [
+    "notify-send-wsl",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "wsl",
+    "windows",
+    "notification",
+    "toast",
+    "notify-send"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dbalabka/notify-send-wsl.git"
+  },
+  "author": "Dmitry Balabka",
+  "bugs": {
+    "url": "https://github.com/dbalabka/notify-send-wsl/issues"
+  },
+  "homepage": "https://github.com/dbalabka/notify-send-wsl#readme",
+  "publishConfig": {
+    "access": "public"
+  }
+}

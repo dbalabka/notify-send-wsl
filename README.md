@@ -1,23 +1,26 @@
 # notify-send-wsl
 
-`notify-send-wsl` provides a WSL command that shows Windows toast notifications through `powershell.exe`.
+`notify-send-wsl` is a small WSL command that shows Windows toast notifications through `powershell.exe`.
+
+It is intended as a lightweight `notify-send` replacement for WSL shells and agent hooks.
 
 ## Requirements
 
 - WSL on Windows
-- `powershell.exe` available in PATH
+- `powershell.exe` available in `PATH`
 
-## Install
+## Installation
+
+### With `npx`
 
 ```bash
-chmod +x notify-send-wsl
-mkdir -p ~/bin
-cp notify-send-wsl ~/bin/
+npx @dbalabka/notify-send-wsl "Installed" "Ready to use"
 ```
 
-Ensure `~/bin` is in your PATH, then run:
+### With global npm install
 
 ```bash
+npm install -g @dbalabka/notify-send-wsl
 notify-send-wsl "Installed" "Ready to use"
 ```
 
@@ -33,26 +36,20 @@ alias notify-send=notify-send-wsl
 notify-send-wsl [OPTIONS] <summary> [body]
 ```
 
-### Supported options
+## Supported options
 
-- `-u, --urgency=LEVEL` (`low`, `normal`, `critical`)
+- `-u, --urgency=LEVEL` with `low`, `normal`, or `critical`
 - `-t, --expire-time=TIME_MS`
 - `-i, --icon=ICON`
 - `-a, --app-name=APP_NAME`
 - `-c, --category=TYPE[,TYPE...]`
-- `-h, --hint=TYPE:NAME:VALUE` (accepted as metadata text)
+- `-h, --hint=TYPE:NAME:VALUE`
 - `--agent=auto|codex|claude`
 - `-?, --help`
 
-### Urgency mapping
-
-- `low` -> `ToastNotification.Priority = Default`
-- `normal` -> `ToastNotification.Priority = Default`
-- `critical` -> `ToastNotification.Priority = High`
-
 ## Examples
 
-Basic:
+Basic notification:
 
 ```bash
 notify-send-wsl "Build complete" "All checks passed"
@@ -73,6 +70,8 @@ notify-send-wsl \
   "All checks passed"
 ```
 
+## Agent integration
+
 From Codex JSON payload:
 
 ```bash
@@ -85,13 +84,14 @@ Codex config:
 notify = ["npx", "@dbalabka/notify-send-wsl", "--agent", "codex"]
 ```
 
-Codex official event payload compatibility:
-- `type` must be `agent-turn-complete` (other event types are ignored)
-- title uses `Codex: <last-assistant-message>` (fallback: `Turn Complete!`)
-- body joins `input-messages` with spaces
-- group/category uses `codex-<thread-id>`
+Codex event compatibility:
 
-From Claude JSON payload (stdin):
+- `type` must be `agent-turn-complete`; other event types are ignored
+- title becomes `Codex: <last-assistant-message>` with fallback `Turn Complete!`
+- body is derived from `input-messages`, then common body-like fields
+- category/group becomes `codex-<thread-id>` when available
+
+From Claude JSON payload on stdin:
 
 ```bash
 cat claude-event.json | notify-send-wsl --agent=claude -
@@ -123,16 +123,31 @@ Raw JSON string mode:
 notify-send-wsl --agent=auto '{"title":"Done","message":"Task finished"}' 'ignored'
 ```
 
-When `--agent=...` is used, the first positional argument is treated as JSON input (`-` for stdin or raw JSON string), and the second positional argument is ignored.
+When `--agent=...` is used, the first positional argument is treated as JSON input. Use `-` to read JSON from stdin. Any second positional argument is ignored.
 
 ## Exit codes
 
-- `0`: success
-- `1`: usage/validation error
-- `2`: PowerShell execution failure
-- `3`: unsupported option
+- `0` success
+- `1` usage or validation error
+- `2` PowerShell execution failure
+- `3` unsupported option
+
+## Publishing
+
+This repository is set up to publish the executable as the public npm package `@dbalabka/notify-send-wsl`.
+
+Dry run:
+
+```bash
+npm pack --dry-run
+```
+
+Publish:
+
+```bash
+npm publish
+```
 
 ## Reference
 
-- Microsoft docs (adaptive/interactive toasts):  
-  <https://learn.microsoft.com/en-us/windows/apps/develop/notifications/app-notifications/adaptive-interactive-toasts?tabs=appsdk>
+- Microsoft docs: <https://learn.microsoft.com/en-us/windows/apps/develop/notifications/app-notifications/adaptive-interactive-toasts?tabs=appsdk>
